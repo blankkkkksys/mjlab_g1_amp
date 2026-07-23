@@ -275,7 +275,7 @@ def g1_amp_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     twist_cmd = cfg.commands["twist"]
     assert isinstance(twist_cmd, UniformVelocityCommandCfg)
     # Match post-curriculum training command ranges (iter > 5000).
-    twist_cmd.ranges.lin_vel_x = (-1.0, 2.0)
+    twist_cmd.ranges.lin_vel_x = (-1.5, 2.0)
     twist_cmd.ranges.lin_vel_y = (-0.0, 0.0)
     twist_cmd.ranges.ang_vel_z = (-1.0, 1.0)
 

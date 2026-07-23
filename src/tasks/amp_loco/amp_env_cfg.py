@@ -208,7 +208,7 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
       heading_control_stiffness=0.5,
       debug_vis=True,
       ranges=UniformVelocityCommandCfg.Ranges(
-        lin_vel_x=(-1.5, 3.0),
+        lin_vel_x=(-1.5, 2.0),
         lin_vel_y=(-1.0, 1.0),
         ang_vel_z=(-3.14 / 2, 3.14 / 2),
         heading=(-math.pi / 2, math.pi / 2),
@@ -296,7 +296,8 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
       func=mdp.track_anchor_linear_velocity,
       weight=1.0,
         params={"command_name": "twist", 
-                "std": 1.0,
+                "std": 0.85,
+                "backward_std_scale": 0.8,
                 "mask_delay": True,
                 "delay_env_rew_ratio": 0.0,
                 "anchor_cfg": SceneEntityCfg("robot", body_names=()),},
@@ -406,8 +407,9 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
       params={
         "command_name": "twist",
         "velocity_stages": [
-          {"step": 0, "lin_vel_x": (-0.5, 1.0), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.0, 1.0)},
-          {"step": 5000 * 24, "lin_vel_x": (-1.0, 2.0), "lin_vel_y": (-1.0, 1.0)},
+          {"step": 0, "lin_vel_x": (-1.0, 1.0), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.0, 1.0)},
+          {"step": 2500 * 24, "lin_vel_x": (-1.2, 1.5), "lin_vel_y": (-0.8, 0.8), "ang_vel_z": (-1.0, 1.0)},
+          {"step": 5000 * 24, "lin_vel_x": (-1.5, 2.0), "lin_vel_y": (-1.0, 1.0)},
         ],
       },
     ),

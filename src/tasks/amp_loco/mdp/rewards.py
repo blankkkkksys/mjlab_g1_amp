@@ -74,6 +74,7 @@ def track_anchor_linear_velocity(
   command_name: str,
   mask_delay: bool = False,
   delay_env_rew_ratio: float = 1.0,
+  backward_std_scale: float = 1.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   anchor_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=()),
 ) -> torch.Tensor:
@@ -91,7 +92,11 @@ def track_anchor_linear_velocity(
     command_xyz_b,
   )
   lin_vel_error = torch.sum(torch.square(command_xyz_w[:,:3] - asset.data.body_link_lin_vel_w[:, anchor_cfg.body_ids[0], :3]), dim=1)
-  reward = torch.exp(-lin_vel_error / std**2)
+  std_sq = std**2
+  if backward_std_scale != 1.0:
+    backward_mask = command[:, 0] < -0.05
+    std_sq = torch.where(backward_mask, (std * backward_std_scale) ** 2, std_sq)
+  reward = torch.exp(-lin_vel_error / std_sq)
   return _apply_delay_env_reward_scaling(env, reward, mask_delay, delay_env_rew_ratio)
 
 
