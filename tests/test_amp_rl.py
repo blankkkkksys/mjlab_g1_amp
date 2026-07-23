@@ -138,3 +138,25 @@ def test_g1_amp_play_cfg_matches_training_reset() -> None:
   assert "foot_friction" not in cfg.events
   assert len(G1_AMP_BODY_NAMES) == 21
   assert len(G1_AMP_BODY_NAMES) * 15 == 315
+
+
+def test_g1_amp_deploy_yaml_matches_training_obs() -> None:
+  from pathlib import Path
+
+  import yaml
+
+  from src.tasks.amp_loco.config.g1.env_cfgs import g1_amp_flat_env_cfg
+
+  deploy_path = (
+    Path(__file__).resolve().parents[1]
+    / "deploy/robots/g1/config/policy/amp/v0/params/deploy.yaml"
+  )
+  deploy_cfg = yaml.safe_load(deploy_path.read_text(encoding="utf-8"))
+  train_cfg = g1_amp_flat_env_cfg()
+
+  obs_cfg = deploy_cfg["observations"]
+  assert obs_cfg["use_gym_history"] is True
+  assert obs_cfg["base_ang_vel"]["history_length"] == train_cfg.observations["actor"].history_length
+  assert "gait_phase" not in obs_cfg
+  assert len(deploy_cfg["actions"]["JointPositionAction"]["scale"]) == 29
+  assert deploy_cfg["commands"]["base_velocity"]["ranges"]["lin_vel_x"] == [-1.5, 2.0]
