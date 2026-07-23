@@ -96,6 +96,8 @@ After generating the NPZ file, launch imitation training:
 python scripts/train.py Unitree-G1-Tracking-No-State-Estimation --motion_file=src/assets/motions/g1/dance1_subject2.npz --env.scene.num-envs=4096
 ```
 
+env -u PYTHONPATH .venv/bin/python scripts/train.py Unitree-G1-AMP-Flat --env.scene.num-envs=4096 --agent.logger=tensorboard
+
 Available tasks:
   - Unitree-G1-Tracking-No-State-Estimation
   - Unitree-G1-23Dof-Tracking-No-State-Estimation

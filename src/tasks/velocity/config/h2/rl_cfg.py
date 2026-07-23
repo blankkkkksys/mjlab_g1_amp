@@ -1,6 +1,6 @@
 """RL configuration for Unitree H2 velocity task."""
 
-from mjlab.rl import (
+from src.rsl_rl import (
   RslRlModelCfg,
   RslRlOnPolicyRunnerCfg,
   RslRlPpoAlgorithmCfg,

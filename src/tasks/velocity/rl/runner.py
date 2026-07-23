@@ -2,12 +2,11 @@ import os
 
 import wandb
 
-from mjlab.rl import RslRlVecEnvWrapper
-from mjlab.rl.exporter_utils import (
+from src.rsl_rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
+from src.rsl_rl.utils.exporter_utils import (
   attach_metadata_to_onnx,
   get_base_metadata,
 )
-from mjlab.rl.runner import MjlabOnPolicyRunner
 
 
 class VelocityOnPolicyRunner(MjlabOnPolicyRunner):

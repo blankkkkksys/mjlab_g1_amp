@@ -3,15 +3,14 @@ from typing import cast
 
 import torch
 import wandb
-from rsl_rl.env.vec_env import VecEnv
+from src.rsl_rl.env.vec_env import VecEnv
 from torch import nn
 
-from mjlab.rl import RslRlVecEnvWrapper
-from mjlab.rl.exporter_utils import (
+from src.rsl_rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
+from src.rsl_rl.utils.exporter_utils import (
   attach_metadata_to_onnx,
   get_base_metadata,
 )
-from mjlab.rl.runner import MjlabOnPolicyRunner
 from mjlab.tasks.tracking.mdp import MotionCommand
 
 

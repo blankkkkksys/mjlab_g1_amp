@@ -1,6 +1,6 @@
 """RL configuration for Unitree G1_23Dof tracking task."""
 
-from mjlab.rl import (
+from src.rsl_rl import (
   RslRlModelCfg,
   RslRlOnPolicyRunnerCfg,
   RslRlPpoAlgorithmCfg,

@@ -11,13 +11,13 @@ from typing import Literal, cast
 import tyro
 
 from mjlab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg
-from mjlab.rl import MjlabOnPolicyRunner, RslRlBaseRunnerCfg, RslRlVecEnvWrapper
 from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg, load_runner_cls
 from mjlab.tasks.tracking.mdp import MotionCommandCfg
 from mjlab.utils.gpu import select_gpus
 from mjlab.utils.os import dump_yaml, get_checkpoint_path
 from mjlab.utils.torch import configure_torch_backends
 from mjlab.utils.wrappers import VideoRecorder
+from src.rsl_rl import MjlabOnPolicyRunner, RslRlBaseRunnerCfg, RslRlVecEnvWrapper
 
 
 @dataclass(frozen=True)
@@ -37,6 +37,29 @@ class TrainConfig:
     env_cfg = load_env_cfg(task_id)
     agent_cfg = load_rl_cfg(task_id)
     return TrainConfig(env=env_cfg, agent=agent_cfg)
+
+
+def _select_training_gpus(
+  gpu_ids: list[int] | Literal["all"] | None,
+) -> tuple[list[int] | None, int]:
+  """Select GPUs and surface a clearer error for common shell typos."""
+  try:
+    return select_gpus(gpu_ids)
+  except IndexError as exc:
+    import torch
+
+    raise RuntimeError(
+      "GPU 选择失败：当前 Python 看不到可用的 CUDA 设备。\n"
+      "最常见原因是命令写错——必须是：\n"
+      "  env -u PYTHONPATH python scripts/train.py ...\n"
+      "注意 PYTHONPATH 与 python 之间要有空格，"
+      "不要写成 `env -u PYTHONPATHpython`。\n"
+      f"当前解释器: {sys.executable}\n"
+      f"torch: {torch.__version__}, cuda devices: {torch.cuda.device_count()}\n"
+      "与 velocity 保持一致即可，例如：\n"
+      "  env -u PYTHONPATH python scripts/train.py Unitree-G1-AMP-Flat "
+      "--env.scene.num-envs=4096 --agent.logger=tensorboard"
+    ) from exc
 
 
 def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
@@ -154,7 +177,7 @@ def launch_training(task_id: str, args: TrainConfig | None = None):
   log_dir = log_root_path / log_dir_name
 
   # Select GPUs based on CUDA_VISIBLE_DEVICES and user specification.
-  selected_gpus, num_gpus = select_gpus(args.gpu_ids)
+  selected_gpus, num_gpus = _select_training_gpus(args.gpu_ids)
 
   # Set environment variables for all modes.
   if selected_gpus is None:
