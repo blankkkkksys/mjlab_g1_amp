@@ -18,6 +18,7 @@ from mjlab.utils.wrappers import VideoRecorder
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
 from src.rsl_rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
+from src.tasks.amp_loco.config.g1.env_cfgs import add_g1_amp_depth_camera
 from src.viewer import (
   KeyboardTwistController,
   KeyboardTwistNativeViewer,
@@ -43,6 +44,11 @@ class PlayConfig:
   """Use WASD / arrow keys to set velocity commands in play mode."""
   keyboard_lin_step: float = 0.1
   keyboard_ang_step: float = 0.1
+  depth_camera: bool = False
+  """Attach an optional forward-facing noisy depth camera to G1 AMP."""
+  depth_camera_width: int = 64
+  depth_camera_height: int = 48
+  depth_camera_history_length: int = 3
   no_terminations: bool = False
   """Disable all termination conditions (useful for viewing motions with dummy agents)."""
 
@@ -120,6 +126,23 @@ def run_play(task_id: str, cfg: PlayConfig):
 
   if cfg.num_envs is not None:
     env_cfg.scene.num_envs = cfg.num_envs
+
+  if cfg.depth_camera:
+    if not task_id.startswith("Unitree-G1-AMP-"):
+      raise ValueError(
+        "--depth-camera is currently supported only for Unitree-G1-AMP tasks"
+      )
+    camera_cfg = add_g1_amp_depth_camera(
+      env_cfg,
+      width=cfg.depth_camera_width,
+      height=cfg.depth_camera_height,
+      history_length=cfg.depth_camera_history_length,
+    )
+    print(
+      "[INFO]: Noisy depth camera enabled: "
+      f"{camera_cfg.width}x{camera_cfg.height}, "
+      f"history={camera_cfg.history_length}"
+    )
 
   if cfg.keyboard_control and "twist" in env_cfg.commands:
     twist_cmd = env_cfg.commands["twist"]

@@ -15,6 +15,13 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg
 from mjlab.tasks.velocity import mdp
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
+from src.sensors import (
+  DepthContourNoiseCfg,
+  DepthGaussianNoiseCfg,
+  DepthPixelDropoutCfg,
+  DepthRangeClipCfg,
+  NoisyDepthCameraCfg,
+)
 from src.tasks.amp_loco.amp_env_cfg import make_amp_env_cfg
 
 # Bodies tracked by AMP style reward and amp/critic body observations.
@@ -42,6 +49,46 @@ G1_AMP_BODY_NAMES = (
   "right_elbow_link",
   "right_wrist_yaw_link",
 )
+
+
+def add_g1_amp_depth_camera(
+  cfg: ManagerBasedRlEnvCfg,
+  *,
+  width: int = 64,
+  height: int = 48,
+  history_length: int = 3,
+) -> NoisyDepthCameraCfg:
+  """Attach an optional forward-facing noisy depth camera to the G1 torso."""
+  camera_cfg = NoisyDepthCameraCfg(
+    name="depth_camera",
+    parent_body="robot/torso_link",
+    pos=(0.08, 0.0, 0.32),
+    # MuJoCo cameras look along local -Z; this maps forward to torso +X
+    # and image-up to torso +Z.
+    quat=(0.5, 0.5, -0.5, -0.5),
+    fovy=75.0,
+    width=width,
+    height=height,
+    use_textures=False,
+    use_shadows=False,
+    enabled_geom_groups=(0, 1, 2),
+    clone_data=True,
+    history_length=history_length,
+    noise_pipeline=(
+      DepthRangeClipCfg(min_depth=0.1, max_depth=5.0),
+      DepthContourNoiseCfg(threshold=0.15, kernel_size=3, value=0.0),
+      DepthGaussianNoiseCfg(std=0.01),
+      DepthPixelDropoutCfg(probability=0.005, value=0.0),
+    ),
+  )
+  sensors = tuple(
+    sensor
+    for sensor in (cfg.scene.sensors or ())
+    if sensor.name != camera_cfg.name
+  )
+  cfg.scene.sensors = sensors + (camera_cfg,)
+  return camera_cfg
+
 
 def g1_amp_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """Create Unitree G1 rough terrain velocity configuration."""

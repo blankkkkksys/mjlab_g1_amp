@@ -219,6 +219,95 @@ def test_g1_amp_play_cfg_matches_training_reset() -> None:
   assert len(G1_AMP_BODY_NAMES) * 15 == 315
 
 
+def test_depth_noise_pipeline_and_camera_history() -> None:
+  from src.sensors import (
+    DepthGaussianNoiseCfg,
+    DepthPixelDropoutCfg,
+    DepthRangeClipCfg,
+    NoisyDepthCamera,
+    NoisyDepthCameraCfg,
+    apply_depth_noise,
+  )
+
+  raw = torch.tensor(
+    [
+      [[[-1.0], [float("inf")]]],
+      [[[0.5], [2.0]]],
+    ]
+  )
+  processed = apply_depth_noise(
+    raw,
+    (
+      DepthRangeClipCfg(min_depth=0.1, max_depth=3.0),
+      DepthGaussianNoiseCfg(std=0.0),
+      DepthPixelDropoutCfg(probability=1.0, value=0.0),
+    ),
+  )
+  torch.testing.assert_close(processed, torch.zeros_like(raw))
+  assert torch.isinf(raw).any()
+
+  camera = NoisyDepthCamera(
+    NoisyDepthCameraCfg(
+      name="test_camera",
+      width=2,
+      height=1,
+      history_length=3,
+    )
+  )
+  frame_0 = torch.tensor(
+    [
+      [[[-0.1], [0.0]]],
+      [[[0.1], [0.2]]],
+    ]
+  )
+  history = camera._append_history(frame_0)
+  torch.testing.assert_close(history, frame_0.unsqueeze(1).expand(-1, 3, -1, -1, -1))
+
+  frame_1 = frame_0 + 1.0
+  history = camera._append_history(frame_1)
+  torch.testing.assert_close(history[:, 0], frame_0)
+  torch.testing.assert_close(history[:, 1], frame_0)
+  torch.testing.assert_close(history[:, 2], frame_1)
+
+  camera.reset(torch.tensor([0]))
+  frame_2 = frame_0 + 2.0
+  history = camera._append_history(frame_2)
+  torch.testing.assert_close(
+    history[0], frame_2[0].unsqueeze(0).expand(3, -1, -1, -1)
+  )
+  torch.testing.assert_close(history[1, 0], frame_0[1])
+  torch.testing.assert_close(history[1, 1], frame_1[1])
+  torch.testing.assert_close(history[1, 2], frame_2[1])
+
+
+def test_g1_optional_depth_camera_is_serializable_and_policy_compatible() -> None:
+  from dataclasses import asdict
+
+  import yaml
+
+  from src.tasks.amp_loco.config.g1.env_cfgs import (
+    add_g1_amp_depth_camera,
+    g1_amp_flat_env_cfg,
+  )
+
+  cfg = g1_amp_flat_env_cfg(play=True)
+  actor_terms_before = tuple(cfg.observations["actor"].terms)
+  critic_terms_before = tuple(cfg.observations["critic"].terms)
+  camera_cfg = add_g1_amp_depth_camera(
+    cfg, width=80, height=60, history_length=4
+  )
+
+  assert camera_cfg.parent_body == "robot/torso_link"
+  assert camera_cfg.data_types == ("depth",)
+  assert camera_cfg.width == 80
+  assert camera_cfg.height == 60
+  assert camera_cfg.history_length == 4
+  assert tuple(cfg.observations["actor"].terms) == actor_terms_before
+  assert tuple(cfg.observations["critic"].terms) == critic_terms_before
+  assert sum(sensor.name == "depth_camera" for sensor in cfg.scene.sensors) == 1
+  yaml.safe_dump(asdict(camera_cfg))
+
+
 def test_g1_amp_deploy_yaml_matches_training_obs() -> None:
   from pathlib import Path
 
