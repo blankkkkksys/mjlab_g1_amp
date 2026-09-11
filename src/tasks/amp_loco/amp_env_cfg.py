@@ -294,9 +294,9 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
   rewards = {
     "track_anchor_linear_velocity": RewardTermCfg(
       func=mdp.track_anchor_linear_velocity,
-      weight=1.0,
+      weight=2.0,
         params={"command_name": "twist", 
-                "std": 0.85,
+                "std": 0.5,
                 "backward_std_scale": 0.8,
                 "mask_delay": True,
                 "delay_env_rew_ratio": 0.0,

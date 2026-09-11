@@ -15,8 +15,15 @@ from mjlab.tasks.tracking.mdp import MotionCommandCfg
 from mjlab.utils.os import get_wandb_checkpoint_path
 from mjlab.utils.torch import configure_torch_backends
 from mjlab.utils.wrappers import VideoRecorder
+from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
 from src.rsl_rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
+from src.viewer import (
+  KeyboardTwistController,
+  KeyboardTwistNativeViewer,
+  KeyboardTwistViserViewer,
+  has_twist_command,
+)
 
 
 @dataclass(frozen=True)
@@ -32,6 +39,10 @@ class PlayConfig:
   video_width: int | None = None
   camera: int | str | None = None
   viewer: Literal["auto", "native", "viser"] = "auto"
+  keyboard_control: bool = True
+  """Use WASD / arrow keys to set velocity commands in play mode."""
+  keyboard_lin_step: float = 0.1
+  keyboard_ang_step: float = 0.1
   no_terminations: bool = False
   """Disable all termination conditions (useful for viewing motions with dummy agents)."""
 
@@ -109,6 +120,13 @@ def run_play(task_id: str, cfg: PlayConfig):
 
   if cfg.num_envs is not None:
     env_cfg.scene.num_envs = cfg.num_envs
+
+  if cfg.keyboard_control and "twist" in env_cfg.commands:
+    twist_cmd = env_cfg.commands["twist"]
+    if isinstance(twist_cmd, UniformVelocityCommandCfg):
+      # Allow lateral strafe when keyboard teleop is enabled.
+      if twist_cmd.ranges.lin_vel_y[1] - twist_cmd.ranges.lin_vel_y[0] < 0.1:
+        twist_cmd.ranges.lin_vel_y = (-0.5, 0.5)
   if cfg.video_height is not None:
     env_cfg.viewer.height = cfg.video_height
   if cfg.video_width is not None:
@@ -167,10 +185,24 @@ def run_play(task_id: str, cfg: PlayConfig):
   else:
     resolved_viewer = cfg.viewer
 
+  keyboard: KeyboardTwistController | None = None
+  if cfg.keyboard_control and has_twist_command(env):
+    keyboard = KeyboardTwistController.from_env(
+      env,
+      lin_step=cfg.keyboard_lin_step,
+      ang_step=cfg.keyboard_ang_step,
+    )
+
   if resolved_viewer == "native":
-    NativeMujocoViewer(env, policy).run()
+    if keyboard is not None:
+      KeyboardTwistNativeViewer(env, policy, keyboard).run()
+    else:
+      NativeMujocoViewer(env, policy).run()
   elif resolved_viewer == "viser":
-    ViserPlayViewer(env, policy).run()
+    if keyboard is not None:
+      KeyboardTwistViserViewer(env, policy, keyboard).run()
+    else:
+      ViserPlayViewer(env, policy).run()
   else:
     raise RuntimeError(f"Unsupported viewer backend: {resolved_viewer}")
 

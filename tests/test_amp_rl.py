@@ -46,6 +46,7 @@ def test_stamp_npz_metadata_adds_joint_and_body_names(tmp_path) -> None:
   sim = Simulation(num_envs=1, cfg=SimulationCfg(), model=scene.compile(), device="cpu")
   scene.initialize(sim.mj_model, sim.model, sim.data)
   robot: Entity = scene["robot"]
+  assert list(robot.joint_names) == list(G1_JOINT_NAMES)
   stamp_npz_metadata(path, robot)
   data = np.load(path, allow_pickle=True)
   assert [str(n) for n in data["joint_names"].tolist()] == list(robot.joint_names)
@@ -65,6 +66,84 @@ def test_time_major_observation_flattening() -> None:
     flattened["actor"], torch.tensor([[1.0, 10.0, 11.0, 2.0, 20.0, 21.0]])
   )
   torch.testing.assert_close(flattened["amp"], observation["amp"])
+
+
+def test_g1_amp_symmetry_is_involutive_and_augments_batch() -> None:
+  from tensordict import TensorDict
+
+  from src.tasks.amp_loco.config.g1.symmetry import mirror_g1_amp
+
+  batch_size = 3
+  actor = torch.randn(batch_size, 4 * 96)
+  critic = torch.randn(batch_size, 4 * 288)
+  amp = torch.randn(batch_size, 315)
+  actions = torch.randn(batch_size, 29)
+  obs = TensorDict(
+    {"actor": actor, "critic": critic, "amp": amp},
+    batch_size=[batch_size],
+  )
+
+  augmented_obs, augmented_actions = mirror_g1_amp(obs, actions, env=None)
+  assert augmented_obs is not None
+  assert augmented_actions is not None
+  assert augmented_obs.batch_size == torch.Size([2 * batch_size])
+  assert augmented_actions.shape == (2 * batch_size, 29)
+  torch.testing.assert_close(augmented_obs["actor"][:batch_size], actor)
+  torch.testing.assert_close(augmented_actions[:batch_size], actions)
+
+  mirrored_obs = augmented_obs[batch_size:]
+  mirrored_actions = augmented_actions[batch_size:]
+  twice_obs, twice_actions = mirror_g1_amp(
+    mirrored_obs, mirrored_actions, env=None
+  )
+  assert twice_obs is not None
+  assert twice_actions is not None
+  torch.testing.assert_close(twice_obs["actor"][batch_size:], actor)
+  torch.testing.assert_close(twice_obs["critic"][batch_size:], critic)
+  torch.testing.assert_close(twice_obs["amp"][batch_size:], amp)
+  torch.testing.assert_close(twice_actions[batch_size:], actions)
+
+
+def test_g1_amp_tracking_and_symmetry_configuration() -> None:
+  from src.tasks.amp_loco.amp_env_cfg import make_amp_env_cfg
+  from src.tasks.amp_loco.config.g1.rl_cfg import g1_amp_ppo_runner_cfg
+
+  env_cfg = make_amp_env_cfg()
+  linear_reward = env_cfg.rewards["track_anchor_linear_velocity"]
+  assert linear_reward.weight == 2.0
+  assert linear_reward.params["std"] == 0.5
+
+  runner_cfg = g1_amp_ppo_runner_cfg()
+  assert runner_cfg.amp_reward_coef == 0.05
+  assert runner_cfg.amp_task_reward_lerp == 0.75
+  assert runner_cfg.algorithm.symmetry_cfg is not None
+  assert runner_cfg.algorithm.symmetry_cfg["use_data_augmentation"] is True
+  assert runner_cfg.algorithm.symmetry_cfg["use_mirror_loss"] is True
+
+
+def test_symmetry_resolution_does_not_pollute_serializable_config() -> None:
+  import yaml
+
+  from src.rsl_rl.extensions.symmetry import resolve_symmetry_config
+
+  class RuntimeEnv:
+    def __reduce_ex__(self, _protocol):
+      raise TypeError("runtime environment must not be serialized")
+
+  original = {
+    "symmetry_cfg": {
+      "use_data_augmentation": True,
+      "use_mirror_loss": True,
+      "mirror_loss_coeff": 0.1,
+      "data_augmentation_func": "module:function",
+    }
+  }
+  runtime_env = RuntimeEnv()
+  resolved = resolve_symmetry_config(original, runtime_env)
+
+  assert "_env" not in original["symmetry_cfg"]
+  assert resolved["symmetry_cfg"]["_env"] is runtime_env
+  yaml.dump(original)
 
 
 def test_replay_buffer_wraps_and_samples() -> None:

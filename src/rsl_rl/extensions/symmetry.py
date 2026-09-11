@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import copy
+
 from src.rsl_rl.env import VecEnv
 
 
@@ -19,10 +21,13 @@ def resolve_symmetry_config(alg_cfg: dict, env: VecEnv) -> dict:
     Returns:
         The resolved algorithm configuration dictionary.
     """
-    # If using symmetry then pass the environment config object
-    # Note: This is used by the symmetry function for handling different observation terms
-    if "symmetry_cfg" in alg_cfg and alg_cfg["symmetry_cfg"] is not None:
-        alg_cfg["symmetry_cfg"]["_env"] = env
+    # Keep runtime-only environment references out of the persisted runner config.
+    # The original config is later serialized to YAML and potentially sent to W&B.
+    resolved_cfg = alg_cfg.copy()
+    if alg_cfg.get("symmetry_cfg") is not None:
+        symmetry_cfg = copy.copy(alg_cfg["symmetry_cfg"])
+        symmetry_cfg["_env"] = env
+        resolved_cfg["symmetry_cfg"] = symmetry_cfg
     else:
-        alg_cfg["symmetry_cfg"] = None
-    return alg_cfg
+        resolved_cfg["symmetry_cfg"] = None
+    return resolved_cfg

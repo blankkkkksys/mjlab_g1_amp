@@ -484,15 +484,15 @@ class PPO:
         cfg["obs_groups"] = resolve_obs_groups(obs, cfg["obs_groups"], default_sets)
 
         # Resolve RND config if used
-        cfg["algorithm"] = resolve_rnd_config(cfg["algorithm"], obs, cfg["obs_groups"], env)
+        algorithm_cfg = resolve_rnd_config(cfg["algorithm"], obs, cfg["obs_groups"], env)
 
         # Resolve symmetry config if used
-        cfg["algorithm"] = resolve_symmetry_config(cfg["algorithm"], env)
+        algorithm_cfg = resolve_symmetry_config(algorithm_cfg, env)
 
         # Initialize the policy
         actor: MLPModel = actor_class(obs, cfg["obs_groups"], "actor", env.num_actions, **cfg["actor"]).to(device)
         print(f"Actor Model: {actor}")
-        if cfg["algorithm"].pop("share_cnn_encoders", None):  # Share CNN encoders between actor and critic
+        if algorithm_cfg.pop("share_cnn_encoders", None):  # Share CNN encoders between actor and critic
             cfg["critic"]["cnns"] = actor.cnns  # type: ignore
         critic: MLPModel = critic_class(obs, cfg["obs_groups"], "critic", 1, **cfg["critic"]).to(device)
         print(f"Critic Model: {critic}")
@@ -501,7 +501,7 @@ class PPO:
         storage = RolloutStorage("rl", env.num_envs, cfg["num_steps_per_env"], obs, [env.num_actions], device)
 
         # Initialize the algorithm
-        alg: PPO = alg_class(actor, critic, storage, device=device, **cfg["algorithm"], multi_gpu_cfg=cfg["multi_gpu"])
+        alg: PPO = alg_class(actor, critic, storage, device=device, **algorithm_cfg, multi_gpu_cfg=cfg["multi_gpu"])
 
         return alg
 

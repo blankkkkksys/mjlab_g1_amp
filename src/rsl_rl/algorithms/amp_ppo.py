@@ -283,16 +283,16 @@ class AMPPPO(PPO):
     cfg["obs_groups"] = resolve_obs_groups(
       obs, cfg["obs_groups"], ["actor", "critic"]
     )
-    cfg["algorithm"] = resolve_rnd_config(
+    algorithm_cfg = resolve_rnd_config(
       cfg["algorithm"], obs, cfg["obs_groups"], env
     )
-    cfg["algorithm"] = resolve_symmetry_config(cfg["algorithm"], env)
+    algorithm_cfg = resolve_symmetry_config(algorithm_cfg, env)
 
     actor = actor_class(
       obs, cfg["obs_groups"], "actor", env.num_actions, **cfg["actor"]
     ).to(device)
     print(f"Actor Model: {actor}")
-    if cfg["algorithm"].pop("share_cnn_encoders", None):
+    if algorithm_cfg.pop("share_cnn_encoders", None):
       cfg["critic"]["cnns"] = actor.cnns
     critic = critic_class(
       obs, cfg["obs_groups"], "critic", 1, **cfg["critic"]
@@ -320,6 +320,6 @@ class AMPPPO(PPO):
       amp_grad_penalty_coef=cfg.get("amp_grad_penalty_coef", 10.0),
       min_normalized_std=list(cfg["min_normalized_std"]),
       device=device,
-      **cfg["algorithm"],
+      **algorithm_cfg,
       multi_gpu_cfg=cfg["multi_gpu"],
     )

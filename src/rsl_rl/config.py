@@ -35,6 +35,7 @@ class RslRlPpoAlgorithmCfg:
   normalize_advantage_per_mini_batch: bool = False
   optimizer: Literal["adam", "adamw", "sgd", "rmsprop"] = "adam"
   share_cnn_encoders: bool = False
+  symmetry_cfg: dict[str, Any] | None = None
   class_name: str = "PPO"
 
 
