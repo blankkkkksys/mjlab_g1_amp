@@ -38,6 +38,7 @@ class RslRlAmpRunnerCfg(RslRlOnPolicyRunnerCfg):
   amp_discriminator_updates_per_iteration: int = 2
   amp_grad_penalty_coef: float = 10.0
   min_normalized_std: List[float] = field(default_factory=lambda: [0.05] * 29)
+  max_normalized_std: List[float] | None = None
   amp_body_names: tuple = ()
   amp_anchor_name: str = ""
 

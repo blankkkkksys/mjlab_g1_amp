@@ -1,5 +1,6 @@
 """Repository-local RSL-RL stack shared by velocity, tracking, and AMP tasks."""
 
+from .algorithms.amp_dwl_ppo import AMPDWLPPO
 from .algorithms.amp_ppo import AMPPPO
 from .algorithms.dwl_ppo import DWLPPO
 from .config import (
@@ -20,6 +21,7 @@ from .utils.amp_motion_loader import AMPLoader, normalize_quat_wxyz
 
 __all__ = [
   "AMPLoader",
+  "AMPDWLPPO",
   "AMPPPO",
   "AMPOnPolicyRunner",
   "AmpNormalizer",

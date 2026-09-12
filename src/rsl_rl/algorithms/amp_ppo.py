@@ -37,6 +37,7 @@ class AMPPPO(PPO):
     amp_discriminator_updates_per_iteration: int = 4,
     amp_grad_penalty_coef: float = 10.0,
     min_normalized_std: list[float],
+    max_normalized_std: list[float] | None = None,
     **kwargs,
   ) -> None:
     super().__init__(actor, critic, storage, **kwargs)
@@ -64,6 +65,23 @@ class AMPPPO(PPO):
     self.min_normalized_std = torch.as_tensor(
       min_normalized_std, dtype=torch.float32, device=self.device
     )
+    self.max_normalized_std = (
+      torch.as_tensor(
+        max_normalized_std, dtype=torch.float32, device=self.device
+      )
+      if max_normalized_std is not None
+      else None
+    )
+    if (
+      self.max_normalized_std is not None
+      and self.max_normalized_std.shape != self.min_normalized_std.shape
+    ):
+      raise ValueError("min_normalized_std and max_normalized_std must match")
+    if (
+      self.max_normalized_std is not None
+      and torch.any(self.max_normalized_std < self.min_normalized_std)
+    ):
+      raise ValueError("max_normalized_std must not be below its minimum")
     self._current_amp_obs: torch.Tensor | None = None
     self._rollout_task_reward_sum = 0.0
     self._rollout_style_reward_sum = 0.0
@@ -213,10 +231,19 @@ class AMPPPO(PPO):
       return
     with torch.no_grad():
       if hasattr(distribution, "std_param"):
-        distribution.std_param.clamp_(min=self.min_normalized_std)
+        distribution.std_param.clamp_(
+          min=self.min_normalized_std,
+          max=self.max_normalized_std,
+        )
       elif hasattr(distribution, "log_std_param"):
+        max_log_std = (
+          torch.log(self.max_normalized_std)
+          if self.max_normalized_std is not None
+          else None
+        )
         distribution.log_std_param.clamp_(
-          min=torch.log(self.min_normalized_std)
+          min=torch.log(self.min_normalized_std),
+          max=max_log_std,
         )
 
   def train_mode(self) -> None:
@@ -319,6 +346,11 @@ class AMPPPO(PPO):
       ),
       amp_grad_penalty_coef=cfg.get("amp_grad_penalty_coef", 10.0),
       min_normalized_std=list(cfg["min_normalized_std"]),
+      max_normalized_std=(
+        list(cfg["max_normalized_std"])
+        if cfg.get("max_normalized_std") is not None
+        else None
+      ),
       device=device,
       **algorithm_cfg,
       multi_gpu_cfg=cfg["multi_gpu"],

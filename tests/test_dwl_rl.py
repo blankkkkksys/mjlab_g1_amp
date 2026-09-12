@@ -172,3 +172,50 @@ def test_rollout_storage_keeps_symmetric_trajectory_state() -> None:
         batch.symmetric_hidden_state[0],
         torch.full((1, num_envs, 4), 20.0),
     )
+
+
+def test_g1_amp_dwl_task_combines_both_algorithms() -> None:
+    import src.tasks  # noqa: F401
+    from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg
+
+    from src.rsl_rl.algorithms.amp_dwl_ppo import AMPDWLPPO
+    from src.rsl_rl.algorithms.amp_ppo import AMPPPO
+    from src.rsl_rl.algorithms.dwl_ppo import DWLPPO
+
+    task_id = "Unitree-G1-AMP-DWL-Flat"
+    assert task_id in list_tasks()
+    assert issubclass(AMPDWLPPO, DWLPPO)
+    assert issubclass(AMPDWLPPO, AMPPPO)
+
+    env_cfg = load_env_cfg(task_id)
+    runner_cfg = load_rl_cfg(task_id)
+    assert env_cfg.observations["actor"].history_length == 1
+    assert env_cfg.observations["critic"].history_length == 1
+    assert "amp" in env_cfg.observations
+    assert runner_cfg.actor.class_name == "DWLModel"
+    assert runner_cfg.algorithm.class_name.endswith(":AMPDWLPPO")
+    assert runner_cfg.algorithm.symmetry_cfg is not None
+    assert runner_cfg.algorithm.symmetry_cfg["mirror_loss_coeff"] == 2.0
+    assert runner_cfg.algorithm.entropy_coef == 0.001
+    assert runner_cfg.actor.distribution_cfg["init_std"] == 0.8
+    assert runner_cfg.amp_task_reward_lerp == 0.75
+    assert runner_cfg.amp_reward_coef == 0.05
+    assert runner_cfg.amp_discriminator_updates_per_iteration == 1
+    assert runner_cfg.max_normalized_std == [1.0] * 29
+
+
+def test_amp_action_std_is_clamped_to_configured_range() -> None:
+    from types import SimpleNamespace
+
+    from src.rsl_rl.algorithms.amp_ppo import AMPPPO
+    from src.rsl_rl.modules.distribution import GaussianDistribution
+
+    distribution = GaussianDistribution(3, init_std=1.5)
+    alg = object.__new__(AMPPPO)
+    alg.actor = SimpleNamespace(distribution=distribution)
+    alg.min_normalized_std = torch.tensor([0.05, 0.05, 0.05])
+    alg.max_normalized_std = torch.tensor([1.0, 1.0, 1.0])
+
+    AMPPPO._clamp_action_std(alg)
+
+    torch.testing.assert_close(distribution.std_param, torch.ones(3))
