@@ -60,6 +60,12 @@ class RolloutStorage:
             self.hidden_states: tuple[HiddenState, HiddenState] = (None, None)
             """Hidden states for recurrent networks, e.g., (actor, critic)."""
 
+            self.symmetric_observations: TensorDict | None = None
+            """Mirrored observations used by recurrent symmetry objectives."""
+
+            self.symmetric_hidden_state: HiddenState = None
+            """Mirrored actor RNN state before processing the current observation."""
+
         def clear(self) -> None:
             """Reset all transition fields to None."""
             self.__init__()
@@ -81,6 +87,8 @@ class RolloutStorage:
             old_actions_log_prob: torch.Tensor | None = None,
             old_distribution_params: tuple[torch.Tensor, ...] | None = None,
             hidden_states: tuple[HiddenState, HiddenState] = (None, None),
+            symmetric_observations: TensorDict | None = None,
+            symmetric_hidden_state: HiddenState = None,
             masks: torch.Tensor | None = None,
             privileged_actions: torch.Tensor | None = None,
             dones: torch.Tensor | None = None,
@@ -118,6 +126,12 @@ class RolloutStorage:
             # For recurrent networks
             self.hidden_states: tuple[HiddenState, HiddenState] = hidden_states
             """Batch of hidden states for recurrent networks (RL recurrent only)."""
+
+            self.symmetric_observations = symmetric_observations
+            """Mirrored observation trajectories for recurrent symmetry."""
+
+            self.symmetric_hidden_state = symmetric_hidden_state
+            """Initial mirrored actor state for each padded trajectory."""
 
             self.masks: torch.Tensor | None = masks
             """Batch of trajectory masks for recurrent networks (RL recurrent only)."""
@@ -163,6 +177,8 @@ class RolloutStorage:
         # For recurrent networks
         self.saved_hidden_state_a = None
         self.saved_hidden_state_c = None
+        self.symmetric_observations: TensorDict | None = None
+        self.saved_symmetric_hidden_state_a = None
 
         # Counter for the number of transitions stored
         self.step = 0
@@ -197,6 +213,24 @@ class RolloutStorage:
 
         # For RNN networks
         self._save_hidden_states(transition.hidden_states)
+        if transition.symmetric_observations is not None:
+            if self.symmetric_observations is None:
+                self.symmetric_observations = TensorDict(
+                    {
+                        key: torch.zeros(
+                            self.num_transitions_per_env,
+                            *value.shape,
+                            device=self.device,
+                        )
+                        for key, value in transition.symmetric_observations.items()
+                    },
+                    batch_size=[self.num_transitions_per_env, self.num_envs],
+                    device=self.device,
+                )
+            self.symmetric_observations[self.step].copy_(
+                transition.symmetric_observations
+            )
+        self._save_symmetric_hidden_state(transition.symmetric_hidden_state)
 
         # Increment the counter
         self.step += 1
@@ -262,6 +296,12 @@ class RolloutStorage:
         if self.training_type != "rl":
             raise ValueError("This function is only available for reinforcement learning training.")
         padded_obs_trajectories, trajectory_masks = split_and_pad_trajectories(self.observations, self.dones)
+        if self.symmetric_observations is not None:
+            padded_symmetric_obs_trajectories, _ = split_and_pad_trajectories(
+                self.symmetric_observations, self.dones
+            )
+        else:
+            padded_symmetric_obs_trajectories = None
         mini_batch_size = self.num_envs // num_mini_batches
 
         for ep in range(num_epochs):
@@ -309,10 +349,34 @@ class RolloutStorage:
                     )
                 else:
                     hidden_state_c_batch = None
+                if self.saved_symmetric_hidden_state_a is not None:
+                    symmetric_hidden_state_batch = [
+                        saved_hidden_state.permute(2, 0, 1, 3)[last_was_done][
+                            first_traj:last_traj
+                        ]
+                        .transpose(1, 0)
+                        .contiguous()
+                        for saved_hidden_state in self.saved_symmetric_hidden_state_a
+                    ]
+                    symmetric_hidden_state_batch = (
+                        symmetric_hidden_state_batch[0]
+                        if len(symmetric_hidden_state_batch) == 1
+                        else symmetric_hidden_state_batch
+                    )
+                else:
+                    symmetric_hidden_state_batch = None
 
                 # Yield the mini-batch
                 yield RolloutStorage.Batch(
                     observations=padded_obs_trajectories[:, first_traj:last_traj],  # type: ignore
+                    symmetric_observations=(
+                        padded_symmetric_obs_trajectories[
+                            :, first_traj:last_traj
+                        ]
+                        if padded_symmetric_obs_trajectories is not None
+                        else None
+                    ),
+                    symmetric_hidden_state=symmetric_hidden_state_batch,
                     actions=self.actions[:, start:stop],
                     values=self.values[:, start:stop],
                     advantages=self.advantages[:, start:stop],
@@ -352,3 +416,22 @@ class RolloutStorage:
         if hidden_states[1] is not None:
             for i in range(len(hidden_state_c)):
                 self.saved_hidden_state_c[i][self.step].copy_(hidden_state_c[i])  # type: ignore
+
+    def _save_symmetric_hidden_state(self, hidden_state: HiddenState) -> None:
+        """Save mirrored actor states used to initialize recurrent mini-batches."""
+        if hidden_state is None:
+            return
+        hidden_state_tuple = (
+            hidden_state if isinstance(hidden_state, tuple) else (hidden_state,)
+        )
+        if self.saved_symmetric_hidden_state_a is None:
+            self.saved_symmetric_hidden_state_a = [
+                torch.zeros(
+                    self.observations.shape[0],
+                    *state.shape,
+                    device=self.device,
+                )
+                for state in hidden_state_tuple
+            ]
+        for i, state in enumerate(hidden_state_tuple):
+            self.saved_symmetric_hidden_state_a[i][self.step].copy_(state)

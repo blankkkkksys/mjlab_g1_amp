@@ -17,6 +17,20 @@ class RslRlModelCfg:
 
 
 @dataclass
+class RslRlDwlModelCfg(RslRlModelCfg):
+  """Configuration for a recurrent DWL actor and its privileged-state decoder."""
+
+  num_embedding: int = 24
+  enc_hidden_dims: Tuple[int, ...] = (256,)
+  dec_hidden_dims: Tuple[int, ...] = (64,)
+  rnn_type: Literal["lstm", "gru"] = "lstm"
+  rnn_hidden_dim: int = 256
+  rnn_num_layers: int = 1
+  decoder_obs_set: str = "critic"
+  class_name: str = "DWLModel"
+
+
+@dataclass
 class RslRlPpoAlgorithmCfg:
   """Configuration for the standard PPO algorithm."""
 
@@ -37,6 +51,15 @@ class RslRlPpoAlgorithmCfg:
   share_cnn_encoders: bool = False
   symmetry_cfg: dict[str, Any] | None = None
   class_name: str = "PPO"
+
+
+@dataclass
+class RslRlDwlAlgorithmCfg(RslRlPpoAlgorithmCfg):
+  """Configuration for PPO with the DWL representation-learning objective."""
+
+  reconstruction_loss_coef: float = 1.0
+  latent_l1_coef: float = 2.0e-3
+  class_name: str = "DWLPPO"
 
 
 @dataclass

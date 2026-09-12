@@ -213,6 +213,7 @@ class PPO:
         mean_value_loss = 0
         mean_surrogate_loss = 0
         mean_entropy = 0
+        mean_auxiliary_metrics: dict[str, float] = {}
         # RND loss
         mean_rnd_loss = 0 if self.rnd else None
         # Symmetry loss
@@ -312,6 +313,13 @@ class PPO:
 
             loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy.mean()
 
+            # Algorithm-specific auxiliary objectives (for example DWL reconstruction).
+            auxiliary_loss, auxiliary_metrics = self.compute_auxiliary_loss(batch)
+            if auxiliary_loss is not None:
+                loss += auxiliary_loss
+            for name, value in auxiliary_metrics.items():
+                mean_auxiliary_metrics[name] = mean_auxiliary_metrics.get(name, 0.0) + value.item()
+
             # Symmetry loss
             if self.symmetry:
                 # Obtain the symmetric actions
@@ -394,6 +402,9 @@ class PPO:
         mean_value_loss /= num_updates
         mean_surrogate_loss /= num_updates
         mean_entropy /= num_updates
+        mean_auxiliary_metrics = {
+            name: value / num_updates for name, value in mean_auxiliary_metrics.items()
+        }
         if mean_rnd_loss is not None:
             mean_rnd_loss /= num_updates
         if mean_symmetry_loss is not None:
@@ -407,6 +418,7 @@ class PPO:
             "value": mean_value_loss,
             "surrogate": mean_surrogate_loss,
             "entropy": mean_entropy,
+            **mean_auxiliary_metrics,
         }
         if self.rnd:
             loss_dict["rnd"] = mean_rnd_loss
@@ -414,6 +426,13 @@ class PPO:
             loss_dict["symmetry"] = mean_symmetry_loss
 
         return loss_dict
+
+    def compute_auxiliary_loss(
+        self, batch: RolloutStorage.Batch
+    ) -> tuple[torch.Tensor | None, dict[str, torch.Tensor]]:
+        """Compute optional algorithm-specific losses and logging metrics."""
+        del batch
+        return None, {}
 
     def train_mode(self) -> None:
         """Set train mode for learnable models."""
