@@ -80,6 +80,8 @@ class MotionResetManager:
         env_ids: torch.Tensor | None,
         motion_dir: str,
         asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+        recovery_low_height: float = 0.6,
+        recovery_low_fraction: float = 0.8,
     ) -> None:
         if env_ids is None:
             env_ids = torch.arange(env.num_envs, device=env.device, dtype=torch.int)
@@ -105,7 +107,11 @@ class MotionResetManager:
         if len(delay_ids) > 0:
             recovery = self.recovery_frames.get(motion_dir)
             frames = recovery if recovery is not None else self.walk_run_frames[motion_dir]
-            self._write_reset_state(env, delay_ids, frames, asset_cfg)
+            low_ids = torch.where(frames["root_pos"][:, 2] < recovery_low_height)[0]
+            self._write_reset_state(
+                env, delay_ids, frames, asset_cfg,
+                low_ids=low_ids, low_fraction=recovery_low_fraction,
+            )
 
     def _get_delay_env_mask(self, env: ManagerBasedRlEnv) -> torch.Tensor | None:
         """Get delay env mask from DelayedTerminationManager if installed."""
@@ -120,10 +126,16 @@ class MotionResetManager:
         env_ids: torch.Tensor,
         frames: dict[str, torch.Tensor],
         asset_cfg: SceneEntityCfg,
+        low_ids: torch.Tensor | None = None,
+        low_fraction: float = 0.0,
     ) -> None:
         total_frames = frames["root_pos"].shape[0]
         num_reset = len(env_ids)
         idx = torch.randint(0, total_frames, (num_reset,), device=env.device)
+        if low_ids is not None and low_ids.numel() > 0:
+            use_low = torch.rand(num_reset, device=env.device) < low_fraction
+            low_samples = low_ids[torch.randint(len(low_ids), (num_reset,), device=env.device)]
+            idx = torch.where(use_low, low_samples, idx)
 
         asset: Entity = env.scene[asset_cfg.name]
 
@@ -235,6 +247,8 @@ def reset_from_motion_data(
     env_ids: torch.Tensor | None,
     motion_dir: str,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+    recovery_low_height: float = 0.6,
+    recovery_low_fraction: float = 0.8,
 ) -> None:
     """Reset event: reset envs from random motion frames, with delay support."""
     MotionResetManager.get().reset(
@@ -242,4 +256,6 @@ def reset_from_motion_data(
         env_ids=env_ids,
         motion_dir=motion_dir,
         asset_cfg=asset_cfg,
+        recovery_low_height=recovery_low_height,
+        recovery_low_fraction=recovery_low_fraction,
     )

@@ -1,6 +1,46 @@
 import numpy as np
 import torch
 
+
+def test_mixed_commands_include_turns_runs_and_standing():
+  from types import SimpleNamespace
+  from src.tasks.amp_loco.config.g1.env_cfgs import g1_amp_flat_env_cfg
+  torch.manual_seed(7)
+  cfg = g1_amp_flat_env_cfg(play=True).commands["twist"]
+  env = SimpleNamespace(num_envs=10000, device="cpu", scene={"robot": object()})
+  term = cfg.build(env)
+  term._resample_command(torch.arange(env.num_envs))
+  # Heading-controlled samples need robot state; test the direct velocity groups.
+  term.cfg.heading_command = False
+  term._update_command()
+  cmd = term.command
+  turning = (cmd[:, :2] == 0).all(-1) & (cmd[:, 2].abs() >= 0.5)
+  running = (cmd[:, 0] >= 1.6) & (cmd[:, 1] == 0)
+  assert 0.16 < turning.float().mean() < 0.22
+  assert 0.25 < running.float().mean() < 0.32
+  assert (cmd[term.is_standing_env] == 0).all()
+  assert not term.is_heading_env[turning | running].any()
+  assert cmd[:, 0].max() <= 3.0
+  # Partial resampling must leave the other environments untouched.
+  before = cmd[100:].clone()
+  term._resample_command(torch.arange(100))
+  torch.testing.assert_close(cmd[100:], before)
+
+
+def test_height_reward_continues_after_recovery_and_uses_local_height():
+  from types import SimpleNamespace
+  from src.tasks.amp_loco.mdp.rewards import track_root_height
+  data = SimpleNamespace(
+    default_root_state=torch.tensor([[0., 0., 0.8]]).repeat(3, 1),
+    body_link_pos_w=torch.tensor([[[0., 0., 0.49]], [[0., 0., 0.51]], [[0., 0., 2.8]]]),
+  )
+  class Scene(dict):
+    env_origins = torch.tensor([[0., 0., 0.], [0., 0., 0.], [0., 0., 2.]])
+  env = SimpleNamespace(scene=Scene(robot=SimpleNamespace(data=data)))
+  reward = track_root_height(env, std=0.35)
+  assert reward[0] < reward[1] < reward[2]
+  torch.testing.assert_close(reward[2], torch.tensor(1.))
+
 from src.rsl_rl.modules.amp_discriminator import Discriminator
 from src.rsl_rl.modules.amp_normalizer import AmpNormalizer
 from src.rsl_rl.storage.amp_replay_buffer import AmpReplayBuffer
@@ -114,8 +154,8 @@ def test_g1_amp_tracking_and_symmetry_configuration() -> None:
   assert linear_reward.params["std"] == 0.5
 
   runner_cfg = g1_amp_ppo_runner_cfg()
-  assert runner_cfg.amp_reward_coef == 0.05
-  assert runner_cfg.amp_task_reward_lerp == 0.75
+  assert runner_cfg.amp_reward_coef == 0.10
+  assert runner_cfg.amp_task_reward_lerp == 0.60
   assert runner_cfg.algorithm.symmetry_cfg is not None
   assert runner_cfg.algorithm.symmetry_cfg["use_data_augmentation"] is True
   assert runner_cfg.algorithm.symmetry_cfg["use_mirror_loss"] is True
@@ -217,6 +257,36 @@ def test_g1_amp_play_cfg_matches_training_reset() -> None:
   assert "foot_friction" not in cfg.events
   assert len(G1_AMP_BODY_NAMES) == 21
   assert len(G1_AMP_BODY_NAMES) * 15 == 315
+
+
+def test_recovery_window_masks_posture_and_clears_on_reset(monkeypatch) -> None:
+  from types import SimpleNamespace
+  from mjlab.managers.termination_manager import TerminationManager
+  from src.tasks.amp_loco.mdp.terminations import DelayedTerminationManager
+  from src.tasks.amp_loco.mdp import rewards
+
+  raw_done = torch.tensor([True, True, False])
+  def compute(base):
+    base._terminated_buf = raw_done.clone()
+    base._truncated_buf = torch.zeros(3, dtype=torch.bool)
+    return raw_done.clone()
+
+  monkeypatch.setattr(TerminationManager, "compute", compute)
+  monkeypatch.setattr(TerminationManager, "reset", lambda self, env_ids: {})
+  tm = DelayedTerminationManager(SimpleNamespace(), torch.tensor([True, False, True]), 3)
+  env = SimpleNamespace(termination_manager=tm)
+  monkeypatch.setattr(rewards, "_body_orientation_l2", lambda *args: torch.ones(3))
+  torch.testing.assert_close(tm.compute(), torch.tensor([False, True, False]))
+  torch.testing.assert_close(rewards.body_orientation_l2(env), torch.tensor([0., 1., 1.]))
+  tm.compute()
+  torch.testing.assert_close(tm.compute(), raw_done)
+  tm.compute()
+  tm.reset(torch.tensor([0]))
+  assert tm._delay_counters[0] == 0
+  tm.compute()
+  raw_done[0] = False
+  tm.compute()
+  torch.testing.assert_close(rewards.body_orientation_l2(env), torch.ones(3))
 
 
 def test_g1_amp_deploy_yaml_matches_training_obs() -> None:

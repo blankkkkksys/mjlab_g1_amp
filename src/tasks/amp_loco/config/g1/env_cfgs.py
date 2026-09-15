@@ -114,8 +114,8 @@ def g1_amp_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.events["base_com"].params["asset_cfg"].body_names = ("torso_link",)
 
   # Motion reset from LAFAN-derived AMP clips (see scripts/prepare_amp_motions.py).
-  cfg.events["init_motion_loader"].params["delay_reset_env_ratio"] = 0.0
-  cfg.events["init_motion_loader"].params["max_delay_steps"] = 0
+  cfg.events["init_motion_loader"].params["delay_reset_env_ratio"] = 0.7
+  cfg.events["init_motion_loader"].params["max_delay_steps"] = 350
 
   _motion_base = os.path.abspath(
     os.path.join(
@@ -275,8 +275,8 @@ def g1_amp_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     twist_cmd = cfg.commands["twist"]
     assert isinstance(twist_cmd, UniformVelocityCommandCfg)
     # Match post-curriculum training command ranges (iter > 5000).
-    twist_cmd.ranges.lin_vel_x = (-1.5, 2.0)
-    twist_cmd.ranges.lin_vel_y = (-0.0, 0.0)
-    twist_cmd.ranges.ang_vel_z = (-1.0, 1.0)
+    twist_cmd.ranges.lin_vel_x = (-1.5, 3.0)
+    twist_cmd.ranges.lin_vel_y = (-0.6, 0.6)
+    twist_cmd.ranges.ang_vel_z = (-2.0, 2.0)
 
   return cfg

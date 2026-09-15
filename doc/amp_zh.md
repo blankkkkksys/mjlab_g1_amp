@@ -1,5 +1,36 @@
 # G1 AMP 任务说明
 
+## 当前恢复训练配置
+
+G1 AMP 默认为 70% 的并行环境启用恢复初始化和延迟终止，恢复窗口为
+350 个控制步（50 Hz 下约 7 秒的连续终止条件）。恢复到正常状态会清零计数，
+episode 超时仍会终止；显式 reset 也会清零计数。环境数较小时，恢复环境数
+按 `int(num_envs * 0.7)` 取整，例如单环境 play 默认没有恢复环境；专门测试
+起身时可将 `init_motion_loader` 的 `delay_reset_env_ratio` 设置为 1.0。
+
+判别器从 `src/assets/motions/g1/amp/` 递归加载 WalkandRun 和 Recovery。
+专家采样按 clip 均匀进行，专家恢复样本比例与 70% 的环境比例相互独立。
+当前已有 17 条 WalkandRun 和 1 条 Recovery，因此恢复 clip 的采样概率约为 1/18。
+
+恢复窗口内暂停默认关节姿态、静止姿态和躯干倾斜约束，原有速度跟踪项也
+按延迟掩码暂停；`track_root_height` 使用连续高度奖励（weight=2，std=0.35），
+站起后仍发放，避免越过恢复阈值时奖励骤降。高度相对环境原点计算。
+Recovery reset 的 80% 采样优先来自根部高度低于 0.6 m 的帧，其余从全部帧采样；
+若不存在低位帧则回退至全部帧。对称数据增强和 mirror loss 保持开启，权重 0.1。
+判别器使用独立 Adam、5e-5 学习率，每轮 2 次更新；风格系数 0.1，task lerp 为 0.6。
+
+## 转向与跑步采样
+
+非静止指令中 20% 专门采样原地转向，30% 专门采样前进跑步，剩余使用普通速度采样。
+专门分组关闭 heading 覆盖；跑步横向速度为零，偏航速度为 ±0.3 rad/s。
+前向速度上限依次为 1.8、2.4、3.0 m/s（环境步数 0、1500×24、3000×24）；
+跑步组下限为 1.6 m/s。课程按环境步数推进，恢复 checkpoint 不代表课程计数自动恢复。
+偏航奖励只跟踪 yaw，std=0.75、weight=2；roll/pitch 稳定性使用独立奖励。
+这些范围允许训练跑步，但实际步态与达速能力需训练验证。
+
+以下历史预处理说明中的 `walk_run_g1` 路径不代表当前配置；当前预处理脚本
+默认 `--mode stamp`，从 CSV 转换需使用 `--mode csv`。
+
 本仓库在本地统一 RL 层 `src/rsl_rl/` 中实现 AMP（Adversarial Motion
 Priors）。Velocity、Tracking 和 AMP 共用标准 `rsl-rl-lib==5.0.1`，
 无需切换依赖、安装 fork 或修改 mjlab 的 site-packages。

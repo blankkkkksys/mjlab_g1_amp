@@ -16,12 +16,38 @@ from mjlab.utils.lab_api.math import (
 from mjlab.utils.lab_api.string import (
   resolve_matching_names_values,
 )
+from src.tasks.velocity.mdp.rewards import (
+  body_orientation_l2 as _body_orientation_l2,
+  stand_still as _stand_still,
+  variable_posture as _variable_posture,
+)
 
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
 
 
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
+
+
+def body_orientation_l2(env, asset_cfg=_DEFAULT_ASSET_CFG):
+  return _apply_delay_env_reward_scaling(
+    env, _body_orientation_l2(env, asset_cfg), True, 0.0
+  )
+
+
+def stand_still(env, command_name, command_threshold=0.1, asset_cfg=_DEFAULT_ASSET_CFG):
+  return _apply_delay_env_reward_scaling(
+    env, _stand_still(env, command_name, command_threshold, asset_cfg), True, 0.0
+  )
+
+
+class variable_posture(_variable_posture):
+  """Keep locomotion posture shaping out of the active recovery window."""
+
+  def __call__(self, env, **kwargs):
+    return _apply_delay_env_reward_scaling(
+      env, super().__call__(env, **kwargs), True, 0.0
+    )
 
 
 def _get_delay_env_mask(env: ManagerBasedRlEnv) -> torch.Tensor | None:
@@ -128,7 +154,8 @@ def track_anchor_angular_velocity(
   )
   ang_vel_xy_error = torch.sum(torch.square(anchor_ang_vel_b[:, :2]), dim=-1)
 
-  total_error = ang_vel_z_error + ang_vel_xy_error
+  # Roll/pitch stability has its own term; do not erase the yaw learning signal.
+  total_error = ang_vel_z_error
 
   reward = torch.exp(-total_error / std**2)
   return _apply_delay_env_reward_scaling(env, reward, mask_delay, delay_env_rew_ratio)
@@ -167,10 +194,10 @@ def track_root_height(
   asset: Entity = env.scene[asset_cfg.name]
 
   desired_height = asset.data.default_root_state[:, 2]
-  cur_root_height = asset.data.body_link_pos_w[:, 0, 2]
+  cur_root_height = asset.data.body_link_pos_w[:, 0, 2] - env.scene.env_origins[:, 2]
   height_error = torch.square(desired_height - cur_root_height)
   reward = torch.exp(-height_error / std**2)
-  return _apply_delay_env_reward_mask_only(env, reward, mask_delay, delay_env_rew_ratio)
+  return _apply_delay_env_reward_scaling(env, reward, mask_delay, delay_env_rew_ratio)
 
 def feet_slip(
   env: ManagerBasedRlEnv,
@@ -249,5 +276,3 @@ def self_collision_cost(
     return hit.sum(dim=-1).float()  # [B]
   assert data.found is not None
   return data.found.squeeze(-1)
-
-

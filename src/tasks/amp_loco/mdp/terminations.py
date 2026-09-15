@@ -31,6 +31,11 @@ class DelayedTerminationManager(TerminationManager):
         self._delay_counters = torch.zeros_like(delay_env_mask, dtype=torch.long)
         self._max_delay_steps = max_delay_steps
 
+    def reset(self, env_ids=None):
+        extras = super().reset(env_ids)
+        self._delay_counters[slice(None) if env_ids is None else env_ids] = 0
+        return extras
+
     def compute(self) -> torch.Tensor:
         dones = super().compute()  # fills _truncated_buf, _terminated_buf
 

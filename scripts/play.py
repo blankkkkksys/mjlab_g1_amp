@@ -45,6 +45,8 @@ class PlayConfig:
   keyboard_ang_step: float = 0.1
   no_terminations: bool = False
   """Disable all termination conditions (useful for viewing motions with dummy agents)."""
+  recovery_play: bool = False
+  """Spawn from fallen recovery clips and enable delayed termination (fall-and-get-up)."""
 
   # Internal flag used by demo script.
   _demo_mode: tyro.conf.Suppress[bool] = False
@@ -120,6 +122,17 @@ def run_play(task_id: str, cfg: PlayConfig):
 
   if cfg.num_envs is not None:
     env_cfg.scene.num_envs = cfg.num_envs
+
+  if cfg.recovery_play:
+    init_motion = env_cfg.events.get("init_motion_loader")
+    if init_motion is not None:
+      init_motion.params["delay_reset_env_ratio"] = 1.0
+      print(
+        "[INFO]: Recovery play enabled — envs spawn from Recovery clips "
+        f"with {init_motion.params.get('max_delay_steps', 0)}-step delayed termination"
+      )
+    else:
+      print("[WARN]: recovery_play requested but init_motion_loader event is missing")
 
   if cfg.keyboard_control and "twist" in env_cfg.commands:
     twist_cmd = env_cfg.commands["twist"]

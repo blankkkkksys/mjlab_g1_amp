@@ -33,6 +33,7 @@ from mjlab.viewer import ViewerConfig
 import src.tasks.amp_loco.mdp as mdp
 from src.tasks.amp_loco.mdp.terrain import RANDOM_ROUGH_TERRAINS_CFG
 from src.tasks.velocity.mdp.curriculums import terrain_levels_vel, commands_vel
+from src.tasks.amp_loco.mdp.mixed_command import AmpVelocityCommandCfg
 
 def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
   """Create AMP Locomotion task configuration."""
@@ -199,7 +200,7 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
   ##
 
   commands: dict[str, CommandTermCfg] = {
-    "twist": UniformVelocityCommandCfg(
+    "twist": AmpVelocityCommandCfg(
       entity_name="robot",
       resampling_time_range=(3.0, 8.0),
       rel_standing_envs=0.05,
@@ -208,8 +209,8 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
       heading_control_stiffness=0.5,
       debug_vis=True,
       ranges=UniformVelocityCommandCfg.Ranges(
-        lin_vel_x=(-1.5, 2.0),
-        lin_vel_y=(-1.0, 1.0),
+        lin_vel_x=(-1.0, 1.8),
+        lin_vel_y=(-0.4, 0.4),
         ang_vel_z=(-3.14 / 2, 3.14 / 2),
         heading=(-math.pi / 2, math.pi / 2),
       ),
@@ -292,6 +293,11 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
   ##
 
   rewards = {
+    "track_root_height": RewardTermCfg(
+      func=mdp.track_root_height,
+      weight=2.0,
+      params={"std": 0.35, "mask_delay": False},
+    ),
     "track_anchor_linear_velocity": RewardTermCfg(
       func=mdp.track_anchor_linear_velocity,
       weight=2.0,
@@ -304,8 +310,8 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
     "track_anchor_angular_velocity": RewardTermCfg(
       func=mdp.track_anchor_angular_velocity,
-      weight=1.0,
-        params={"command_name": "twist", "std": 3.14,
+      weight=2.0,
+        params={"command_name": "twist", "std": 0.75,
                 "mask_delay": True,
                 "delay_env_rew_ratio": 0.0,
                 "anchor_cfg": SceneEntityCfg("robot", body_names=()),},
@@ -407,9 +413,9 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
       params={
         "command_name": "twist",
         "velocity_stages": [
-          {"step": 0, "lin_vel_x": (-1.0, 1.0), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.0, 1.0)},
-          {"step": 2500 * 24, "lin_vel_x": (-1.2, 1.5), "lin_vel_y": (-0.8, 0.8), "ang_vel_z": (-1.0, 1.0)},
-          {"step": 5000 * 24, "lin_vel_x": (-1.5, 2.0), "lin_vel_y": (-1.0, 1.0)},
+          {"step": 0, "lin_vel_x": (-1.0, 1.8), "lin_vel_y": (-0.4, 0.4), "ang_vel_z": (-1.5, 1.5)},
+          {"step": 1500 * 24, "lin_vel_x": (-1.2, 2.4), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.8, 1.8)},
+          {"step": 3000 * 24, "lin_vel_x": (-1.5, 3.0), "lin_vel_y": (-0.6, 0.6), "ang_vel_z": (-2.0, 2.0)},
         ],
       },
     ),
@@ -458,8 +464,5 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
     decimation=4,
     episode_length_s=20.0,
   )
-
-
-
 
 
