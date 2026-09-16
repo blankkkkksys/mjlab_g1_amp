@@ -126,8 +126,51 @@ def _stamp_dir(npz_dir: Path, robot: Entity) -> None:
     stamp_npz_metadata(path, robot)
 
 
+def _clean_amp_motion_dirs(walk_output_dir: Path, recovery_output_dir: Path) -> None:
+  """Remove existing AMP NPZ clips before syncing from a reference repo."""
+  removed = 0
+  for directory in (walk_output_dir, recovery_output_dir):
+    if not directory.is_dir():
+      continue
+    for path in directory.glob("*.npz"):
+      path.unlink()
+      removed += 1
+  print(f"Cleaned {removed} existing AMP motion clips")
+
+
+def _sync_from_ref(
+  ref_repo: Path,
+  walk_output_dir: Path,
+  recovery_output_dir: Path,
+) -> None:
+  """Copy prepared NPZ clips from a reference AMP_mjlab checkout."""
+  ref_amp = ref_repo / "src" / "assets" / "motions" / "g1" / "amp"
+  if not ref_amp.is_dir():
+    raise FileNotFoundError(f"Reference AMP motion root not found: {ref_amp}")
+
+  import shutil
+
+  _clean_amp_motion_dirs(walk_output_dir, recovery_output_dir)
+
+  for subdir, output_dir in (
+    ("WalkandRun", walk_output_dir),
+    ("Recovery", recovery_output_dir),
+  ):
+    src_dir = ref_amp / subdir
+    if not src_dir.is_dir():
+      raise FileNotFoundError(f"Reference motion directory not found: {src_dir}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    files = sorted(p for p in src_dir.glob("*.npz") if not p.name.endswith("_M.npz"))
+    if not files:
+      raise FileNotFoundError(f"No NPZ files found in {src_dir}")
+    print(f"Syncing {len(files)} clips from {src_dir} -> {output_dir}")
+    for src in files:
+      shutil.copy2(src, output_dir / src.name)
+
+
 def main(
   mode: str = "stamp",
+  ref_repo: str = "~/projects/AMP_mjlab",
   walk_csv_dir: str = "src/assets/motions/g1/lafan/walk_run",
   recovery_csv_dir: str = "src/assets/motions/g1/lafan/recovery",
   walk_output_dir: str = "src/assets/motions/g1/amp/WalkandRun",
@@ -140,8 +183,21 @@ def main(
 
   Modes:
     stamp: add joint/body metadata to existing NPZ under output dirs
+    sync: clean local AMP dirs, copy NPZ from a reference AMP_mjlab repo, then stamp metadata
     csv: convert LAFAN CSV directories to AMP NPZ (WalkandRun + Recovery)
   """
+  if mode == "sync":
+    _sync_from_ref(
+      Path(ref_repo).expanduser().resolve(),
+      Path(walk_output_dir),
+      Path(recovery_output_dir),
+    )
+    _scene, _sim, robot = _build_robot(device)
+    for directory in (Path(walk_output_dir), Path(recovery_output_dir)):
+      _stamp_dir(directory, robot)
+    print("Done.")
+    return
+
   if mode == "csv":
     _convert_dir(Path(walk_csv_dir), Path(walk_output_dir), device, input_fps, output_fps)
     recovery_dir = Path(recovery_csv_dir)

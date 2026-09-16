@@ -32,7 +32,7 @@ class RslRlAmpRunnerCfg(RslRlOnPolicyRunnerCfg):
   amp_motion_files: str = ""
   amp_num_preload_transitions: int = 200000
   amp_task_reward_lerp: float = 0.75
-  amp_discr_hidden_dims: List[int] = field(default_factory=lambda: [512, 256, 128])
+  amp_discr_hidden_dims: List[int] = field(default_factory=lambda: [1024, 512, 256])
   amp_discriminator_learning_rate: float = 1.0e-4
   amp_discriminator_updates_per_iteration: int = 2
   amp_grad_penalty_coef: float = 10.0
@@ -72,14 +72,6 @@ def g1_amp_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
       lam=0.95,
       desired_kl=0.01,
       max_grad_norm=1.0,
-      symmetry_cfg={
-        "use_data_augmentation": True,
-        "use_mirror_loss": True,
-        "mirror_loss_coeff": 0.1,
-        "data_augmentation_func": (
-          "src.tasks.amp_loco.config.g1.symmetry:mirror_g1_amp"
-        ),
-      },
       class_name="src.rsl_rl.algorithms.amp_ppo:AMPPPO",
     ),
     experiment_name="g1_amp_locomotion",
@@ -92,8 +84,8 @@ def g1_amp_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
     amp_motion_files=os.path.normpath(_MOTION_DATA_DIR),
     amp_num_preload_transitions=200000,
     # Final reward = lerp * task reward + (1 - lerp) * AMP style reward.
-    amp_task_reward_lerp=0.60,
-    amp_discr_hidden_dims=[512, 256, 128],
+    amp_task_reward_lerp=0.75,
+    amp_discr_hidden_dims=[1024, 512, 256],
     amp_discriminator_learning_rate=5.0e-5,
     amp_discriminator_updates_per_iteration=2,
     min_normalized_std=[0.05] * 29,

@@ -6,38 +6,29 @@ from src.assets.robots import (
   G1_ACTION_SCALE,
   get_g1_robot_cfg,
 )
+from src.assets.robots.unitree_g1.g1_constants import KNEES_BENT_KEYFRAME
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
-from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg
 from mjlab.tasks.velocity import mdp
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from src.tasks.amp_loco.amp_env_cfg import make_amp_env_cfg
 
-# Bodies tracked by AMP style reward and amp/critic body observations.
-# Includes full leg chains plus shoulder_pitch for natural arm swing.
+# Match the reference AMP_mjlab discriminator body set.
 G1_AMP_BODY_NAMES = (
   "pelvis",
-  "left_hip_pitch_link",
   "left_hip_roll_link",
-  "left_hip_yaw_link",
   "left_knee_link",
-  "left_ankle_pitch_link",
   "left_ankle_roll_link",
-  "right_hip_pitch_link",
   "right_hip_roll_link",
-  "right_hip_yaw_link",
   "right_knee_link",
-  "right_ankle_pitch_link",
   "right_ankle_roll_link",
-  "left_shoulder_pitch_link",
   "left_shoulder_roll_link",
   "left_elbow_link",
   "left_wrist_yaw_link",
-  "right_shoulder_pitch_link",
   "right_shoulder_roll_link",
   "right_elbow_link",
   "right_wrist_yaw_link",
@@ -52,7 +43,9 @@ def g1_amp_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.sim.contact_sensor_maxmatch = 500
   cfg.sim.nconmax = 48
 
-  cfg.scene.entities = {"robot": get_g1_robot_cfg()}
+  robot_cfg = get_g1_robot_cfg()
+  robot_cfg.init_state = KNEES_BENT_KEYFRAME
+  cfg.scene.entities = {"robot": robot_cfg}
 
   # Set raycast sensor frame to G1 pelvis.
   for sensor in cfg.scene.sensors or ():
@@ -113,9 +106,9 @@ def g1_amp_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.events["foot_friction"].params["asset_cfg"].geom_names = geom_names
   cfg.events["base_com"].params["asset_cfg"].body_names = ("torso_link",)
 
-  # Motion reset from LAFAN-derived AMP clips (see scripts/prepare_amp_motions.py).
-  cfg.events["init_motion_loader"].params["delay_reset_env_ratio"] = 0.7
-  cfg.events["init_motion_loader"].params["max_delay_steps"] = 350
+  # Match AMP_mjlab recovery sampling: 40% envs, 250-step delayed termination.
+  cfg.events["init_motion_loader"].params["delay_reset_env_ratio"] = 0.4
+  cfg.events["init_motion_loader"].params["max_delay_steps"] = 250
 
   _motion_base = os.path.abspath(
     os.path.join(
@@ -146,57 +139,6 @@ def g1_amp_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     params={"sensor_name": self_collision_cfg.name, "force_threshold": 10.0},
   )
   cfg.rewards["body_ang_vel_xy_l2"].params["body_cfg"].body_names = (root_name,)
-  cfg.rewards["body_orientation_l2"].params["asset_cfg"].body_names = (anchor_name,)
-  cfg.rewards["pose"].params["std_standing"] = {
-    r".*hip.*": 0.05,
-    r".*knee.*": 0.05,
-    r".*ankle.*": 0.05,
-    r"waist.*": 0.05,
-    r".*shoulder.*": 0.08,
-    r".*elbow.*": 0.08,
-    r".*wrist.*": 0.10,
-  }
-  cfg.rewards["pose"].params["std_walking"] = {
-    r".*hip_pitch.*": 0.5,
-    r".*hip_roll.*": 0.15,
-    r".*hip_yaw.*": 0.15,
-    r".*knee.*": 0.5,
-    r".*ankle_pitch.*": 0.15,
-    r".*ankle_roll.*": 0.1,
-    r".*waist_yaw.*": 0.15,
-    r".*waist_roll.*": 0.1,
-    r".*waist_pitch.*": 0.1,
-    # Looser arm std: let AMP style drive swing instead of pulling to default.
-    r".*shoulder_pitch.*": 0.35,
-    r".*shoulder_roll.*": 0.35,
-    r".*shoulder_yaw.*": 0.30,
-    r".*elbow.*": 0.35,
-    r".*wrist.*": 0.30,
-  }
-  cfg.rewards["pose"].params["std_running"] = {
-    r".*hip_pitch.*": 0.5,
-    r".*hip_roll.*": 0.25,
-    r".*hip_yaw.*": 0.25,
-    r".*knee.*": 0.5,
-    r".*ankle_pitch.*": 0.25,
-    r".*ankle_roll.*": 0.1,
-    r".*waist_yaw.*": 0.25,
-    r".*waist_roll.*": 0.1,
-    r".*waist_pitch.*": 0.1,
-    r".*shoulder_pitch.*": 0.45,
-    r".*shoulder_roll.*": 0.40,
-    r".*shoulder_yaw.*": 0.35,
-    r".*elbow.*": 0.40,
-    r".*wrist.*": 0.35,
-  }
-  cfg.rewards["stand_still"].params["asset_cfg"] = SceneEntityCfg(
-    "robot",
-    joint_names=(r".*hip.*", r".*knee.*", r".*ankle.*", r"waist.*"),
-  )
-  cfg.rewards["action_rate_l2"] = RewardTermCfg(
-    func=mdp.action_rate_l2,
-    weight=-0.005,
-  )
 
   cfg.observations["critic"].terms["body_pos_b"].params["anchor_cfg"].body_names = (anchor_name,)
   cfg.observations["critic"].terms["body_pos_b"].params["body_cfg"].body_names = body_names
@@ -236,6 +178,7 @@ def g1_amp_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       mode="reset",
       params={},
     )
+    cfg.events["init_motion_loader"].params["delay_reset_env_ratio"] = 1.0
 
     if cfg.scene.terrain is not None:
       if cfg.scene.terrain.terrain_generator is not None:
@@ -274,9 +217,8 @@ def g1_amp_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   if play:
     twist_cmd = cfg.commands["twist"]
     assert isinstance(twist_cmd, UniformVelocityCommandCfg)
-    # Match post-curriculum training command ranges (iter > 5000).
     twist_cmd.ranges.lin_vel_x = (-1.5, 3.0)
-    twist_cmd.ranges.lin_vel_y = (-0.6, 0.6)
-    twist_cmd.ranges.ang_vel_z = (-2.0, 2.0)
+    twist_cmd.ranges.lin_vel_y = (-1.0, 1.0)
+    twist_cmd.ranges.ang_vel_z = (-3.14 / 2, 3.14 / 2)
 
   return cfg

@@ -33,7 +33,6 @@ from mjlab.viewer import ViewerConfig
 import src.tasks.amp_loco.mdp as mdp
 from src.tasks.amp_loco.mdp.terrain import RANDOM_ROUGH_TERRAINS_CFG
 from src.tasks.velocity.mdp.curriculums import terrain_levels_vel, commands_vel
-from src.tasks.amp_loco.mdp.mixed_command import AmpVelocityCommandCfg
 
 def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
   """Create AMP Locomotion task configuration."""
@@ -200,7 +199,7 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
   ##
 
   commands: dict[str, CommandTermCfg] = {
-    "twist": AmpVelocityCommandCfg(
+    "twist": UniformVelocityCommandCfg(
       entity_name="robot",
       resampling_time_range=(3.0, 8.0),
       rel_standing_envs=0.05,
@@ -209,8 +208,8 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
       heading_control_stiffness=0.5,
       debug_vis=True,
       ranges=UniformVelocityCommandCfg.Ranges(
-        lin_vel_x=(-1.0, 1.8),
-        lin_vel_y=(-0.4, 0.4),
+        lin_vel_x=(-1.5, 3.0),
+        lin_vel_y=(-1.0, 1.0),
         ang_vel_z=(-3.14 / 2, 3.14 / 2),
         heading=(-math.pi / 2, math.pi / 2),
       ),
@@ -293,28 +292,27 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
   ##
 
   rewards = {
-    "track_root_height": RewardTermCfg(
-      func=mdp.track_root_height,
-      weight=2.0,
-      params={"std": 0.35, "mask_delay": False},
-    ),
     "track_anchor_linear_velocity": RewardTermCfg(
       func=mdp.track_anchor_linear_velocity,
-      weight=2.0,
+      weight=1.0,
         params={"command_name": "twist", 
-                "std": 0.5,
-                "backward_std_scale": 0.8,
+                "std": 1.0,
                 "mask_delay": True,
                 "delay_env_rew_ratio": 0.0,
                 "anchor_cfg": SceneEntityCfg("robot", body_names=()),},
     ),
     "track_anchor_angular_velocity": RewardTermCfg(
       func=mdp.track_anchor_angular_velocity,
-      weight=2.0,
-        params={"command_name": "twist", "std": 0.75,
+      weight=1.0,
+        params={"command_name": "twist", "std": 3.14,
                 "mask_delay": True,
                 "delay_env_rew_ratio": 0.0,
                 "anchor_cfg": SceneEntityCfg("robot", body_names=()),},
+    ),
+    "track_root_height": RewardTermCfg(
+      func=mdp.track_root_height,
+      weight=1.0,
+      params={"std": 0.3, "mask_delay": True, "delay_env_rew_ratio": 3.5},
     ),
     "body_ang_vel_xy_l2": RewardTermCfg(
       func=mdp.body_ang_vel_xy_l2,
@@ -324,34 +322,7 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
                 "delay_env_rew_ratio": 0.0,
                 "body_cfg": SceneEntityCfg("robot", body_names=("pelvis",)),},
     ),
-    "body_orientation_l2": RewardTermCfg(
-      func=mdp.body_orientation_l2,
-      weight=-1.0,
-      params={"asset_cfg": SceneEntityCfg("robot", body_names=())},
-    ),
-    "pose": RewardTermCfg(
-      func=mdp.variable_posture,
-      weight=1.0,
-      params={
-        "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
-        "command_name": "twist",
-        "std_standing": {},  # Set per-robot.
-        "std_walking": {},  # Set per-robot.
-        "std_running": {},  # Set per-robot.
-        "walking_threshold": 0.1,
-        "running_threshold": 1.5,
-      },
-    ),
-    "stand_still": RewardTermCfg(
-      func=mdp.stand_still,
-      weight=-1.0,
-      params={
-        "command_name": "twist",
-        "command_threshold": 0.1,
-        "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
-      },
-    ),
-    
+
     "is_terminated": RewardTermCfg(func=mdp.is_terminated, weight=-200.0),
     "joint_acc_l2": RewardTermCfg(func=mdp.joint_acc_l2, weight=-2.5e-7),
     "joint_pos_limits": RewardTermCfg(func=mdp.joint_pos_limits, weight=-10.0),
@@ -413,9 +384,8 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
       params={
         "command_name": "twist",
         "velocity_stages": [
-          {"step": 0, "lin_vel_x": (-1.0, 1.8), "lin_vel_y": (-0.4, 0.4), "ang_vel_z": (-1.5, 1.5)},
-          {"step": 1500 * 24, "lin_vel_x": (-1.2, 2.4), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.8, 1.8)},
-          {"step": 3000 * 24, "lin_vel_x": (-1.5, 3.0), "lin_vel_y": (-0.6, 0.6), "ang_vel_z": (-2.0, 2.0)},
+          {"step": 0, "lin_vel_x": (-0.5, 1.0), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.0, 1.0)},
+          {"step": 5000 * 24, "lin_vel_x": (-1.0, 2.0), "lin_vel_y": (-1.0, 1.0)},
         ],
       },
     ),
@@ -464,5 +434,3 @@ def make_amp_env_cfg() -> ManagerBasedRlEnvCfg:
     decimation=4,
     episode_length_s=20.0,
   )
-
-

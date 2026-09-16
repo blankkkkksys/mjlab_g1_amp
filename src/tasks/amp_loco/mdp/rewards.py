@@ -5,16 +5,12 @@ from typing import TYPE_CHECKING
 import torch
 
 from mjlab.entity import Entity
-from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
-from mjlab.sensor import BuiltinSensor, ContactSensor
+from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import (
   quat_apply_inverse, 
   yaw_quat, 
   quat_apply
-)
-from mjlab.utils.lab_api.string import (
-  resolve_matching_names_values,
 )
 from src.tasks.velocity.mdp.rewards import (
   body_orientation_l2 as _body_orientation_l2,
@@ -53,6 +49,9 @@ class variable_posture(_variable_posture):
 def _get_delay_env_mask(env: ManagerBasedRlEnv) -> torch.Tensor | None:
   """Get delaying env mask from DelayedTerminationManager if installed."""
   tm = env.termination_manager
+  active = getattr(tm, "_recovery_active", None)
+  if isinstance(active, torch.Tensor):
+    return active
   delay_env_mask = getattr(tm, "_delay_env_mask", None)
   delay_counters = getattr(tm, "_delay_counters", None)
   if isinstance(delay_env_mask, torch.Tensor) and isinstance(delay_counters, torch.Tensor):
@@ -154,8 +153,7 @@ def track_anchor_angular_velocity(
   )
   ang_vel_xy_error = torch.sum(torch.square(anchor_ang_vel_b[:, :2]), dim=-1)
 
-  # Roll/pitch stability has its own term; do not erase the yaw learning signal.
-  total_error = ang_vel_z_error
+  total_error = ang_vel_z_error + ang_vel_xy_error
 
   reward = torch.exp(-total_error / std**2)
   return _apply_delay_env_reward_scaling(env, reward, mask_delay, delay_env_rew_ratio)

@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 
-def test_mixed_commands_include_turns_runs_and_standing():
+def test_reference_uniform_commands_include_forward_backward_and_standing():
   from types import SimpleNamespace
   from src.tasks.amp_loco.config.g1.env_cfgs import g1_amp_flat_env_cfg
   torch.manual_seed(7)
@@ -10,16 +10,14 @@ def test_mixed_commands_include_turns_runs_and_standing():
   env = SimpleNamespace(num_envs=10000, device="cpu", scene={"robot": object()})
   term = cfg.build(env)
   term._resample_command(torch.arange(env.num_envs))
-  # Heading-controlled samples need robot state; test the direct velocity groups.
+  # Heading-controlled samples need robot state; test direct sampled velocities.
   term.cfg.heading_command = False
   term._update_command()
   cmd = term.command
-  turning = (cmd[:, :2] == 0).all(-1) & (cmd[:, 2].abs() >= 0.5)
-  running = (cmd[:, 0] >= 1.6) & (cmd[:, 1] == 0)
-  assert 0.16 < turning.float().mean() < 0.22
-  assert 0.25 < running.float().mean() < 0.32
   assert (cmd[term.is_standing_env] == 0).all()
-  assert not term.is_heading_env[turning | running].any()
+  moving = ~term.is_standing_env
+  assert (cmd[moving, 0] < 0).any()
+  assert (cmd[moving, 0] > 0).any()
   assert cmd[:, 0].max() <= 3.0
   # Partial resampling must leave the other environments untouched.
   before = cmd[100:].clone()
@@ -115,8 +113,8 @@ def test_g1_amp_symmetry_is_involutive_and_augments_batch() -> None:
 
   batch_size = 3
   actor = torch.randn(batch_size, 4 * 96)
-  critic = torch.randn(batch_size, 4 * 288)
-  amp = torch.randn(batch_size, 315)
+  critic = torch.randn(batch_size, 4 * 216)
+  amp = torch.randn(batch_size, 195)
   actions = torch.randn(batch_size, 29)
   obs = TensorDict(
     {"actor": actor, "critic": critic, "amp": amp},
@@ -144,21 +142,27 @@ def test_g1_amp_symmetry_is_involutive_and_augments_batch() -> None:
   torch.testing.assert_close(twice_actions[batch_size:], actions)
 
 
-def test_g1_amp_tracking_and_symmetry_configuration() -> None:
+def test_g1_amp_reference_training_configuration() -> None:
   from src.tasks.amp_loco.amp_env_cfg import make_amp_env_cfg
+  from src.tasks.amp_loco.config.g1.env_cfgs import g1_amp_flat_env_cfg
   from src.tasks.amp_loco.config.g1.rl_cfg import g1_amp_ppo_runner_cfg
+  from src.assets.robots.unitree_g1.g1_constants import KNEES_BENT_KEYFRAME
 
   env_cfg = make_amp_env_cfg()
   linear_reward = env_cfg.rewards["track_anchor_linear_velocity"]
-  assert linear_reward.weight == 2.0
-  assert linear_reward.params["std"] == 0.5
+  assert linear_reward.weight == 1.0
+  assert linear_reward.params["std"] == 1.0
+  assert "pose" not in env_cfg.rewards
+  assert "stand_still" not in env_cfg.rewards
 
   runner_cfg = g1_amp_ppo_runner_cfg()
   assert runner_cfg.amp_reward_coef == 0.10
-  assert runner_cfg.amp_task_reward_lerp == 0.60
-  assert runner_cfg.algorithm.symmetry_cfg is not None
-  assert runner_cfg.algorithm.symmetry_cfg["use_data_augmentation"] is True
-  assert runner_cfg.algorithm.symmetry_cfg["use_mirror_loss"] is True
+  assert runner_cfg.amp_task_reward_lerp == 0.75
+  assert runner_cfg.amp_discr_hidden_dims == [1024, 512, 256]
+  assert runner_cfg.algorithm.symmetry_cfg is None
+
+  g1_cfg = g1_amp_flat_env_cfg()
+  assert g1_cfg.scene.entities["robot"].init_state is KNEES_BENT_KEYFRAME
 
 
 def test_symmetry_resolution_does_not_pollute_serializable_config() -> None:
@@ -255,8 +259,8 @@ def test_g1_amp_play_cfg_matches_training_reset() -> None:
   assert cfg.events["init_motion_loader"].params["recovery_dir"].endswith("Recovery")
   assert cfg.events["init_motion_loader"].params["motion_dir"].endswith("WalkandRun")
   assert "foot_friction" not in cfg.events
-  assert len(G1_AMP_BODY_NAMES) == 21
-  assert len(G1_AMP_BODY_NAMES) * 15 == 315
+  assert len(G1_AMP_BODY_NAMES) == 13
+  assert len(G1_AMP_BODY_NAMES) * 15 == 195
 
 
 def test_recovery_window_masks_posture_and_clears_on_reset(monkeypatch) -> None:
@@ -273,7 +277,9 @@ def test_recovery_window_masks_posture_and_clears_on_reset(monkeypatch) -> None:
 
   monkeypatch.setattr(TerminationManager, "compute", compute)
   monkeypatch.setattr(TerminationManager, "reset", lambda self, env_ids: {})
-  tm = DelayedTerminationManager(SimpleNamespace(), torch.tensor([True, False, True]), 3)
+  tm = DelayedTerminationManager(
+    SimpleNamespace(), torch.tensor([True, False, True]), 3
+  )
   env = SimpleNamespace(termination_manager=tm)
   monkeypatch.setattr(rewards, "_body_orientation_l2", lambda *args: torch.ones(3))
   torch.testing.assert_close(tm.compute(), torch.tensor([False, True, False]))
@@ -286,7 +292,26 @@ def test_recovery_window_masks_posture_and_clears_on_reset(monkeypatch) -> None:
   tm.compute()
   raw_done[0] = False
   tm.compute()
+  assert tm._delay_counters[0] == 0
   torch.testing.assert_close(rewards.body_orientation_l2(env), torch.ones(3))
+
+
+def test_episode_timeout_bypasses_recovery_delay(monkeypatch):
+  from types import SimpleNamespace
+  from mjlab.managers.termination_manager import TerminationManager
+  from src.tasks.amp_loco.mdp.terminations import DelayedTerminationManager
+
+  def compute(tm):
+    tm._terminated_buf = torch.zeros(2, dtype=torch.bool)
+    tm._truncated_buf = torch.tensor([True, False])
+    return tm._terminated_buf | tm._truncated_buf
+
+  monkeypatch.setattr(TerminationManager, "compute", compute)
+  monkeypatch.setattr(TerminationManager, "reset", lambda *args: {})
+  tm = DelayedTerminationManager(
+    SimpleNamespace(), torch.tensor([True, False]), 4
+  )
+  assert tm.compute()[0]
 
 
 def test_g1_amp_deploy_yaml_matches_training_obs() -> None:
